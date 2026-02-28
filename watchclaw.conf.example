@@ -15,7 +15,7 @@ GATEWAY_LOG="/tmp/openclaw-gateway.log"
 # ── Health Check ─────────────────────────────────────────────────────
 POLL_INTERVAL_SEC=10                # Seconds between /health polls
 HEALTH_TIMEOUT_SEC=5                # curl timeout for health check
-# GATEWAY_TLS=1                    # Set to 1 if gateway uses HTTPS (TLS enabled)
+# GATEWAY_TLS=0                    # Set to 1 if gateway uses HTTPS (TLS enabled)
 
 # ── Timing ───────────────────────────────────────────────────────────
 GRACE_PERIOD_SEC=20                 # Seconds after restart before checking health
