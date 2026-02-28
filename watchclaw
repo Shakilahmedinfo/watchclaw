@@ -1,0 +1,307 @@
+#!/usr/bin/env bash
+# watchclaw — OpenClaw Gateway Watchdog CLI
+# A companion that watches your claw.
+set -uo pipefail
+
+VERSION="0.1.0"
+SOURCE="$0"
+while [[ -L "$SOURCE" ]]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+
+# ── Config resolution ────────────────────────────────────────────────
+resolve_conf() {
+  if [[ -n "${OPT_CONFIG:-}" && -f "$OPT_CONFIG" ]]; then
+    echo "$OPT_CONFIG"
+  elif [[ -n "${WATCHCLAW_CONF:-}" && -f "$WATCHCLAW_CONF" ]]; then
+    echo "$WATCHCLAW_CONF"
+  elif [[ -f "$SCRIPT_DIR/watchclaw.conf" ]]; then
+    echo "$SCRIPT_DIR/watchclaw.conf"
+  elif [[ -f "$HOME/.config/watchclaw/watchclaw.conf" ]]; then
+    echo "$HOME/.config/watchclaw/watchclaw.conf"
+  else
+    echo ""
+  fi
+}
+
+load_conf() {
+  local conf
+  conf=$(resolve_conf)
+  if [[ -z "$conf" ]]; then
+    echo "ERROR: No config found. Create watchclaw.conf from watchclaw.conf.example" >&2
+    echo "  Searched: --config, \$WATCHCLAW_CONF, ./watchclaw.conf, ~/.config/watchclaw/watchclaw.conf" >&2
+    return 1
+  fi
+  # shellcheck disable=SC1090
+  source "$conf"
+  RESOLVED_CONF="$conf"
+}
+
+# ── Lock / PID helpers ───────────────────────────────────────────────
+lock_file() { echo "/tmp/watchclaw-${GATEWAY_PORT}.pid"; }
+
+running_pid() {
+  local lf
+  lf=$(lock_file)
+  if [[ -f "$lf" ]]; then
+    local pid
+    pid=$(cat "$lf" 2>/dev/null)
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      echo "$pid"
+      return
+    fi
+  fi
+  echo ""
+}
+
+# ── Commands ─────────────────────────────────────────────────────────
+
+cmd_start() {
+  load_conf || exit 1
+  local pid
+  pid=$(running_pid)
+  if [[ -n "$pid" ]]; then
+    echo "Watchclaw already running (PID $pid) on port $GATEWAY_PORT"
+    exit 1
+  fi
+
+  if [[ "${FOREGROUND:-0}" == "1" ]]; then
+    echo "Starting watchclaw (foreground) on port $GATEWAY_PORT..."
+    export WATCHCLAW_FOREGROUND=1
+    exec bash "$SCRIPT_DIR/watchclaw.sh" "$RESOLVED_CONF"
+  else
+    echo "Starting watchclaw on port $GATEWAY_PORT..."
+    local start_log="/tmp/watchclaw-start-$$.log"
+    bash "$SCRIPT_DIR/watchclaw.sh" "$RESOLVED_CONF" </dev/null >"$start_log" 2>&1 &
+    disown $! 2>/dev/null
+    sleep 1
+    pid=$(running_pid)
+    if [[ -n "$pid" ]]; then
+      echo "Watchclaw running (PID $pid). Logs: ${LOG_FILE:-./logs/watchclaw.log}"
+      rm -f "$start_log"
+    else
+      echo "ERROR: Watchclaw failed to start." >&2
+      # Show captured stderr (if any)
+      if [[ -s "$start_log" ]]; then
+        cat "$start_log" >&2
+      fi
+      # Show recent log entries for the actual error
+      local lf="${LOG_FILE:-./logs/watchclaw.log}"
+      if [[ -f "$lf" ]]; then
+        echo "" >&2
+        tail -5 "$lf" | grep -E '\[(ERROR|WARN)\]' >&2
+      fi
+      rm -f "$start_log"
+      exit 1
+    fi
+  fi
+}
+
+cmd_stop() {
+  load_conf || exit 1
+  local pid
+  pid=$(running_pid)
+  if [[ -z "$pid" ]]; then
+    echo "Watchclaw is not running on port $GATEWAY_PORT"
+    exit 0
+  fi
+  echo "Stopping watchclaw (PID $pid)..."
+  kill "$pid" 2>/dev/null
+  sleep 2
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null
+  fi
+  rm -f "$(lock_file)"
+  echo "Stopped."
+}
+
+cmd_restart() {
+  cmd_stop
+  sleep 1
+  cmd_start
+}
+
+cmd_status() {
+  load_conf || exit 1
+  local pid
+  pid=$(running_pid)
+
+  echo "Watchclaw: v${VERSION}"
+  echo ""
+
+  if [[ -z "$pid" ]]; then
+    echo "── Watchclaw ──────────────────────────"
+    echo "  State:          STOPPED"
+    echo "  Config:         ${RESOLVED_CONF}"
+    echo ""
+    echo "── Gateway ────────────────────────────"
+    echo "  Port:           $GATEWAY_PORT"
+    echo "  Gateway conf dir:  $GATEWAY_CONFIG_DIR"
+    return
+  fi
+
+  # Read state from log (last occurrence)
+  local state="UNKNOWN"
+  local log_file="${LOG_FILE:-./logs/watchclaw.log}"
+  if [[ -f "$log_file" ]]; then
+    # Extract latest state transition
+    local last_state
+    last_state=$(grep -oE 'state=(HEALTHY|PROBATION|ALERT|IDLE|RESTARTING)' "$log_file" | tail -1 | cut -d= -f2)
+    [[ -n "$last_state" ]] && state="$last_state"
+    # Check for probation/alert patterns if no explicit state=
+    if [[ "$state" == "UNKNOWN" ]]; then
+      if grep -q "entering PROBATION\|entering probation" "$log_file" 2>/dev/null; then
+        state="PROBATION"
+      fi
+    fi
+  fi
+
+  # Uptime
+  local start_ts uptime_str=""
+  if command -v ps &>/dev/null; then
+    local elapsed
+    elapsed=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')
+    [[ -n "$elapsed" ]] && uptime_str="$elapsed"
+  fi
+
+  # Known-good hash
+  local kg_hash="(none)"
+  if [[ -d "$GATEWAY_CONFIG_DIR/.git" ]]; then
+    kg_hash=$(git -C "$GATEWAY_CONFIG_DIR" rev-parse --short "known-good" 2>/dev/null || echo "(none)")
+  fi
+
+  # Health check
+  local health="UNKNOWN"
+  local code
+  code=$(curl -s -o /dev/null -w "%{http_code}" --max-time "${HEALTH_TIMEOUT:-5}" \
+    "http://127.0.0.1:${GATEWAY_PORT}/" 2>/dev/null) || code="ERR"
+  [[ "$code" == "200" ]] && health="200 OK" || health="$code"
+
+  # Retry info from log
+  local retries="0/${MAX_RETRIES:-3}"
+  local last_retry_num
+  last_retry_num=$(grep -oE 'Retry ([0-9]+)/[0-9]+' "$log_file" 2>/dev/null | tail -1 | grep -oE '[0-9]+/[0-9]+')
+  [[ -n "$last_retry_num" ]] && retries="$last_retry_num" || retries="0/${MAX_RETRIES:-3}"
+
+  local dry_run_str="False"
+  [[ "${DRY_RUN:-0}" == "1" ]] && dry_run_str="True"
+
+  echo "── Watchclaw ──────────────────────────"
+  echo "  State:          $state"
+  [[ -n "$uptime_str" ]] && echo "  Uptime:         $uptime_str"
+  echo "  PID:            $pid"
+  echo "  Config:         $RESOLVED_CONF"
+  echo "  Alert hook:     ${ALERT_HOOK:-none}"
+  echo "  Dry-run:        $dry_run_str"
+  echo "  Retries:        $retries"
+  echo ""
+  echo "── Gateway ────────────────────────────"
+  echo "  Health:         $health"
+  echo "  Port:           $GATEWAY_PORT"
+  echo "  Known-good commit: $kg_hash"
+  echo "  Gateway conf dir:  $GATEWAY_CONFIG_DIR"
+}
+
+cmd_logs() {
+  load_conf || exit 1
+  local log_file="${LOG_FILE:-./logs/watchclaw.log}"
+  if [[ ! -f "$log_file" ]]; then
+    echo "No log file at $log_file"
+    exit 1
+  fi
+  if [[ "${FOLLOW:-0}" == "1" ]]; then
+    tail -f "$log_file"
+  else
+    tail -n "${TAIL_LINES:-50}" "$log_file"
+  fi
+}
+
+cmd_config() {
+  load_conf || exit 1
+  echo "# Resolved config: $RESOLVED_CONF"
+  echo ""
+  cat "$RESOLVED_CONF"
+}
+
+cmd_version() {
+  echo "v${VERSION}"
+}
+
+cmd_help() {
+  cat <<'EOF'
+watchclaw — A watchdog companion for your OpenClaw gateway.
+
+Usage:
+  watchclaw <command> [options]
+
+Commands:
+  start       Start the watchdog daemon
+  stop        Stop the watchdog daemon
+  restart     Restart the watchdog daemon
+  status      Show watchdog and gateway status
+  logs        View watchdog logs
+  config      Print resolved configuration
+  version     Print version
+  help        Show this help
+
+Options:
+  --config PATH       Path to config file
+  --foreground        Run in foreground (start only)
+  --follow, -f        Follow log output (logs only)
+  --tail N            Number of log lines to show (default: 50)
+
+Config search order:
+  1. --config PATH
+  2. $WATCHCLAW_CONF
+  3. ./watchclaw.conf
+  4. ~/.config/watchclaw/watchclaw.conf
+
+Examples:
+  watchclaw start                     # Start as daemon
+  watchclaw start --foreground        # Run in foreground
+  watchclaw status                    # Check status
+  watchclaw logs --follow             # Tail logs
+  watchclaw stop                      # Stop daemon
+EOF
+}
+
+# ── Parse args ───────────────────────────────────────────────────────
+OPT_CONFIG=""
+FOREGROUND=0
+FOLLOW=0
+TAIL_LINES=50
+COMMAND=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --config)       OPT_CONFIG="$2"; shift 2 ;;
+    --foreground)    FOREGROUND=1; shift ;;
+    --follow|-f)    FOLLOW=1; shift ;;
+    --tail)         TAIL_LINES="$2"; shift 2 ;;
+    --version|-V)   cmd_version; exit 0 ;;
+    -*)             echo "Unknown option: $1" >&2; cmd_help; exit 1 ;;
+    *)
+      if [[ -z "$COMMAND" ]]; then
+        COMMAND="$1"
+      else
+        echo "Unexpected argument: $1" >&2; exit 1
+      fi
+      shift ;;
+  esac
+done
+
+case "${COMMAND:-help}" in
+  start)   cmd_start ;;
+  stop)    cmd_stop ;;
+  restart) cmd_restart ;;
+  status)  cmd_status ;;
+  logs)    cmd_logs ;;
+  config)  cmd_config ;;
+  version) cmd_version ;;
+  version|--version|-V) cmd_version ;;
+  help|--help|-h) cmd_help ;;
+  *)       echo "Unknown command: $COMMAND" >&2; cmd_help; exit 1 ;;
+esac
