@@ -20,12 +20,12 @@ HEALTH_TIMEOUT_SEC=5                # curl timeout for health check
 
 # ── Timing ───────────────────────────────────────────────────────────
 GRACE_PERIOD_SEC=20                 # Seconds after restart before checking health
-PROBATION_DURATION_SEC=60          # 5 min stable → promote to known-good
+PROBATION_DURATION_SEC=60 stable → promote to known-good
 
 # ── Retry + Backoff ──────────────────────────────────────────────────
 MAX_RETRIES=3                   # Restart attempts before ALERT state
-BACKOFF_INITIAL_SEC=300             # 5 min first alert interval
-BACKOFF_MAX_SEC=3600                # 1 hour cap
+BACKOFF_INITIAL_SEC=60              # 1 min first alert interval
+BACKOFF_MAX_SEC=300                 # 5 min cap
 
 # ── Alert Hook ───────────────────────────────────────────────────────
 # Which alert hook to use: imsg | webhook | command | none
