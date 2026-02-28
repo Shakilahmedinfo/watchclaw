@@ -1,4 +1,6 @@
 logs/*
 **/*.log
 watchclaw*.conf
+dist/logs/
 dist/
+watchclaw.conf
