@@ -3,6 +3,7 @@
 
 # ── Gateway ──────────────────────────────────────────────────────────
 GATEWAY_PORT=18790              # Port to monitor
+WATCHCLAW_TARGET=""              # Human-readable name for alerts (e.g. "Jarvis")
 GATEWAY_CONFIG_DIR="$HOME/.openclaw"    # Must be a git repo with at least one commit
 GATEWAY_LOG="/tmp/openclaw-gateway.log"
 

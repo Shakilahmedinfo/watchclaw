@@ -110,7 +110,10 @@ _alert_command() {
 }
 
 send_alert() {
-  local msg="$1"
+  local target="${WATCHCLAW_TARGET:-port $GATEWAY_PORT}"
+  local ts
+  ts="$(date '+%b %d %H:%M')"
+  local msg="[$ts] [$target] ${1#\[Watchclaw\] }"
   log "ALERT" "$msg"
   if [[ "$DRY_RUN" == "1" ]]; then
     log "ALERT" "[DRY-RUN] Would send: $msg"
@@ -291,7 +294,7 @@ do_retry_loop() {
   done
   # Exhausted retries → ALERT
   STATE="ALERT"
-  send_alert "[Watchclaw] Gateway down after $MAX_RETRIES retries. Manual intervention needed."
+  send_alert "Gateway down after $MAX_RETRIES retries. Manual intervention needed."
   next_alert_time=$(( $(date +%s) + backoff ))
   backoff=$(( backoff * 2 ))
   (( backoff > BACKOFF_MAX_SEC )) && backoff=$BACKOFF_MAX_SEC
@@ -327,7 +330,7 @@ handle_unhealthy() {
 
   # Config error confirmed — classify
   log "ERROR" "Config error detected in gateway log"
-  send_alert "[Watchclaw] Gateway down — config error detected. Attempting auto-recovery."
+  send_alert "Gateway down — config error detected. Attempting auto-recovery."
   local cur kg
 
   cur=$(current_hash)
@@ -436,7 +439,7 @@ main() {
             STATE="HEALTHY"
             log "INFO" "Probation passed — state=HEALTHY"
             if [[ "$recovering" == "true" ]]; then
-              send_alert "[Watchclaw] Gateway recovered and stable. New known-good promoted."
+              send_alert "Gateway recovered and stable. New known-good promoted."
               recovering=false
             fi
           fi
@@ -446,7 +449,7 @@ main() {
           (( retry_count++ ))
           if (( retry_count > MAX_RETRIES )); then
             STATE="ALERT"
-            send_alert "[Watchclaw] Gateway keeps dying during probation. Manual check needed."
+            send_alert "Gateway keeps dying during probation. Manual check needed."
             next_alert_time=$(( $(date +%s) + backoff ))
             backoff=$(( backoff * 2 ))
             (( backoff > BACKOFF_MAX_SEC )) && backoff=$BACKOFF_MAX_SEC
@@ -466,7 +469,7 @@ main() {
         if check_health; then
           # Recovered!
           log "INFO" "Gateway recovered from ALERT state"
-          send_alert "[Watchclaw] Gateway is back up! Entering probation."
+          send_alert "Gateway is back up! Entering probation."
           STATE="PROBATION"
           probation_start=$(date +%s)
           retry_count=0
@@ -476,7 +479,7 @@ main() {
           local now
           now=$(date +%s)
           if (( now >= next_alert_time )); then
-            send_alert "[Watchclaw] Gateway still down. Next alert in ${backoff}s."
+            send_alert "Gateway still down. Next alert in ${backoff}s."
             next_alert_time=$(( now + backoff ))
             backoff=$(( backoff * 2 ))
             (( backoff > BACKOFF_MAX_SEC )) && backoff=$BACKOFF_MAX_SEC

@@ -4,3 +4,4 @@ watchclaw*.conf
 dist/logs/
 dist/
 watchclaw.conf
+.DS_Store
